@@ -1,0 +1,133 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import OneHotEncoder
+import matplotlib.pyplot as plt
+import folium
+from folium.plugins import HeatMap
+
+# Load the dataset
+data_file = 'housing.csv'  # Adjust path if necessary
+data = pd.read_csv(data_file)
+
+# Handle missing values
+data['total_bedrooms'].fillna(data['total_bedrooms'].median(), inplace=True)
+
+# Encode categorical variable (ocean_proximity)
+encoder = OneHotEncoder(drop='first', sparse_output=False)  # Use sparse_output=False
+encoded_ocean_proximity = encoder.fit_transform(data[['ocean_proximity']])
+ocean_proximity_columns = encoder.get_feature_names_out(['ocean_proximity'])
+
+# Convert encoded data to DataFrame and add it to the original data
+encoded_df = pd.DataFrame(encoded_ocean_proximity, columns=ocean_proximity_columns)
+data = pd.concat([data, encoded_df], axis=1)
+
+# Drop the original 'ocean_proximity' column
+data.drop('ocean_proximity', axis=1, inplace=True)
+
+# Define features and target
+X = data.drop('median_house_value', axis=1)
+y = data['median_house_value']
+
+# Split the dataset into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train a Random Forest Regressor
+model = RandomForestRegressor(random_state=42, n_estimators=100)
+model.fit(X_train, y_train)
+
+# Predict on test data
+y_pred = model.predict(X_test)
+
+# Evaluate the model
+mse = mean_squared_error(y_test, y_pred)
+print(f"Mean Squared Error: {mse:.2f}")
+print(f"Root Mean Squared Error: {np.sqrt(mse):.2f}")
+
+# 1. Scatter Plot: Actual vs. Predicted
+plt.figure(figsize=(10, 6))
+plt.scatter(y_test, y_pred, alpha=0.6, color='blue', label='Predictions')
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', label='Ideal Fit')
+plt.xlabel('Actual Values')
+plt.ylabel('Predicted Values')
+plt.title('Actual vs. Predicted Housing Prices')
+plt.legend()
+plt.grid()
+plt.show()
+
+# 2. Heatmap: Visualizing Housing Prices on the Map
+# Add a heatmap of the actual housing prices (using latitude, longitude, and price)
+heat_data = [[row['latitude'], row['longitude'], row['median_house_value']] for index, row in data.iterrows()]
+map_center = [37.5, -119.5]  # Rough center of California
+map_housing = folium.Map(location=map_center, zoom_start=6)
+HeatMap(heat_data).add_to(map_housing)
+
+# Save the map to an HTML file
+map_housing.save('housing_prices_map.html')
+print("Map has been saved as 'housing_prices_map.html'. Open it in your browser to view.")
+
+
+# Prepare data for heatmaps
+# Add test set indices back to X_test for latitude/longitude mapping
+X_test_with_index = X_test.copy()
+X_test_with_index['index'] = X_test_with_index.index
+
+# Combine y_test and predictions into a DataFrame with coordinates
+test_results = pd.DataFrame({
+    'latitude': data.loc[X_test_with_index['index'], 'latitude'].values,
+    'longitude': data.loc[X_test_with_index['index'], 'longitude'].values,
+    'actual_price': y_test.values,
+    'predicted_price': y_pred
+})
+
+# Heatmap for actual prices
+actual_heat_data = [[row['latitude'], row['longitude'], row['actual_price']] for _, row in test_results.iterrows()]
+actual_map = folium.Map(location=[37.5, -119.5], zoom_start=6)
+HeatMap(actual_heat_data).add_to(actual_map)
+actual_map.save('actual_housing_prices_map.html')
+
+# Heatmap for predicted prices
+predicted_heat_data = [[row['latitude'], row['longitude'], row['predicted_price']] for _, row in test_results.iterrows()]
+predicted_map = folium.Map(location=[37.5, -119.5], zoom_start=6)
+HeatMap(predicted_heat_data).add_to(predicted_map)
+predicted_map.save('predicted_housing_prices_map.html')
+
+# Inform the user
+print("Maps have been saved:")
+print(" - Actual prices: 'actual_housing_prices_map.html'")
+print(" - Predicted prices: 'predicted_housing_prices_map.html'")
+
+# Create a base map
+combined_map = folium.Map(location=[37.5, -119.5], zoom_start=6)
+
+# Add actual prices as blue circles
+for _, row in test_results.iterrows():
+    folium.CircleMarker(
+        location=[row['latitude'], row['longitude']],
+        radius=5,  # Adjust size as needed
+        color='blue',
+        fill=True,
+        fill_color='blue',
+        fill_opacity=0.6,
+        popup=f"Actual Price: ${row['actual_price']:.2f}"
+    ).add_to(combined_map)
+
+# Add predicted prices as red circles
+for _, row in test_results.iterrows():
+    folium.CircleMarker(
+        location=[row['latitude'], row['longitude']],
+        radius=5,  # Adjust size as needed
+        color='red',
+        fill=True,
+        fill_color='red',
+        fill_opacity=0.6,
+        popup=f"Predicted Price: ${row['predicted_price']:.2f}"
+    ).add_to(combined_map)
+
+# Save the combined map to an HTML file
+combined_map.save('combined_housing_prices_map.html')
+
+# Inform the user
+print("Combined map with actual and predicted prices has been saved as 'combined_housing_prices_map.html'.")
